@@ -1,0 +1,169 @@
+{-# LANGUAGE ApplicativeDo #-}
+module Accounts where
+
+import Daml.Script
+
+-- data BalanceKey = BalanceKey with
+--   accountNumber : Text
+--   owner : Party
+--     deriving (Eq, Show)
+
+-- template AccountBalance
+--   with
+--     owner : Party
+--     accountNumber : Text
+--     balance : Decimal
+--     observers : [Party]
+--   where
+--     key BalanceKey with
+--         accountNumber
+--         owner
+--       : BalanceKey
+--     maintainer key.owner
+
+--     signatory owner
+
+--     controller owner can
+
+--       AcceptDeposit : ContractId Account
+--         with deposit : Decimal
+--         do
+--           create this with
+--             balance = balance + deposit
+  
+
+
+data AccountKey = AccountKey with
+  number : Text
+  owner : Party
+    deriving (Eq, Show)
+
+template Account
+  with
+    owner : Party
+    number : Text
+    balance : Decimal
+    observers : [Party]
+  where
+    key AccountKey with
+          number
+          owner
+        : AccountKey
+    maintainer key.owner
+
+    signatory owner
+
+    controller owner can
+
+      AcceptDeposit : ContractId Account
+        with deposit : Decimal
+        do
+          create this with
+            balance = balance + deposit
+
+      TransferFundsTo : ContractId TransferFunds
+        with
+          recipient : Party
+          amount : Decimal
+          toAccount : ContractId Account
+        do
+          assert(amount <= balance)
+          create this with
+            balance = balance - amount
+          create TransferFunds
+            with
+              recipient
+              sender = owner
+              amount
+              toAccount
+
+template TransferFunds
+  with
+    recipient : Party
+    sender : Party
+    amount : Decimal
+    toAccount : ContractId Account
+  where
+    key sender : Party
+    maintainer key
+    signatory sender
+    controller recipient can
+
+      Accept: ContractId Account
+        do
+        assert(amount > 0.0)
+        exercise toAccount AcceptDeposit
+          with
+            deposit = amount
+
+template TransferRequest
+  with
+    requestor : Party
+    debtor : Party
+    payee : Party
+    payeeAccount : ContractId Account
+    paymentAmount : Decimal
+  where
+    key payee : Party
+    maintainer key
+    signatory requestor, payee
+    controller debtor can
+      SendPayment : ContractId TransferFunds
+        with
+          account : ContractId Account
+        do
+          exercise account TransferFundsTo
+            with
+              recipient = payee
+              amount = paymentAmount
+              toAccount = payeeAccount
+
+template TransferRequestHelper
+  with
+    p : Party
+  where
+    signatory p
+    choice FetchPayRequestByKey : (ContractId TransferRequest, TransferRequest)
+      with
+        tKey: Party
+      controller p
+      do
+        fetchByKey @TransferRequest tKey
+
+template AccountHelper
+  with
+    p : Party
+  where
+    signatory p
+    choice FetchAccountByKey : (ContractId Account, Account)
+      with
+        accountKey : AccountKey
+      controller p
+      do fetchByKey @Account accountKey
+
+
+test = script do
+  martin <- allocateParty "Martin"
+  admin <- allocateParty "Admin"
+
+  let
+    initial_deposit = Account
+      with
+        owner = martin
+        number = "ABC123"
+        balance = 200.0
+        observers = [admin]
+  
+  martinAccount <- submit martin do
+    createCmd initial_deposit
+
+  addedFunds <- submit martin do
+    cid <- exerciseCmd martinAccount AcceptDeposit
+      with
+        deposit = 200.0
+    pure cid
+
+  -- assert (martinAccount == addedFunds)
+
+  pure()
+

@@ -1,0 +1,12 @@
+{-# LANGUAGE ApplicativeDo #-}
+ module Main where
+
+import Listing
+import Properties
+import Accounts
+import Roles
+
+import Daml.Script
+
+
+ 

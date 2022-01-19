@@ -1,0 +1,67 @@
+{-# LANGUAGE ApplicativeDo #-}
+module Bank where
+
+import Daml.Script
+import DA.Date
+
+data User = User with
+  party : Party
+  name : Text
+    deriving (Eq, Show)
+
+data Admin = Admin with
+  party : Party
+  name : Text
+    deriving (Eq, Show)
+
+data AccountKey = AccountKey with
+  number : Text
+  bank_party : Party
+    deriving (Eq, Show)
+
+template Account
+  with
+    account_holder : Party
+    bank : Party
+    number : Text
+    balance : Decimal
+  where
+    signatory bank
+    controller bank can
+
+      AcceptDeposit : ContractId Account
+        with deposit : Decimal
+        do
+          create this with
+            balance = balance + deposit
+
+    key AccountKey with
+        number
+        bank_party = bank
+      : AccountKey
+    maintainer key.bank_party
+
+
+test = do
+  martin <- allocateParty "Martin"
+  admin <- allocateParty "Admin"
+  bank <- allocateParty "Bank ABC"
+
+  let
+    initial_deposit = Account
+      with
+        account_holder = martin
+        bank = bank
+        number = "ABC123"
+        balance = 200.0
+  
+  martinAccount <- submit bank do
+    createCmd initial_deposit
+
+  addedFunds <- submit bank do
+    exerciseCmd martinAccount AcceptDeposit
+      with
+        deposit = 200.0
+
+  pure()
+

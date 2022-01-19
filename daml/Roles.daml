@@ -1,0 +1,15 @@
+{-# LANGUAGE ApplicativeDo #-}
+ module Roles where
+
+template UserLicense
+  with
+    user : Party
+  where
+    signatory user
+
+template AdminLicense
+  with
+    admin : Party
+  where
+    signatory admin
+    

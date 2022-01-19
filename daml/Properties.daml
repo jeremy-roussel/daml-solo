@@ -1,0 +1,98 @@
+{-# LANGUAGE ApplicativeDo #-}
+module Properties where
+
+import Accounts
+import Daml.Script
+
+template Property
+  with
+    owner : Party
+    issuer : Party
+    previous_owners: [Party]
+    price_history : [Decimal]
+    royalty : PropertyRoyalties
+    observers : [Party]
+  where
+    observer observers
+    signatory owner
+    controller owner can
+
+      TransferProperty : ContractId Property
+        with
+          newOwner : Party
+          purchasePrice : Decimal
+        do
+          create this with
+            previous_owners = owner :: previous_owners
+            owner = newOwner
+            price_history = purchasePrice :: price_history
+
+      UpdateRoyalty : ContractId Property
+        with
+          newRoyalty : PropertyRoyalties
+        do
+          assert(issuer == owner)
+          create this with
+            royalty = newRoyalty
+
+
+template PropertyRoyalties
+  with
+    owner : Party
+    ownerAccountNumber : Text
+    royalty_rate : Decimal
+    observers : [Party]
+  where
+    key owner : Party
+    maintainer key
+    signatory owner
+    observer observers
+    controller owner can
+
+      UpdateRoyaltyRate : ContractId PropertyRoyalties
+        with
+          newRate : Decimal
+        do
+          create this with
+            royalty_rate = newRate
+
+
+template ProposeMintProperty
+  with
+    requestor : Party
+    admin : Party
+    royalty : PropertyRoyalties
+  where
+    signatory requestor
+    controller admin can
+      RequestPayment : ContractId TransferRequest
+        with
+          account : ContractId Account
+          amount : Decimal
+        do
+          create TransferRequest with
+            requestor = admin
+            payee = admin
+            debtor = requestor
+            payeeAccount = account
+            paymentAmount = amount
+
+
+template TransferPropertyRequest
+  with
+    requestor: Party
+    owner : Party
+    newOwner : Party
+    property : ContractId Property
+    purchasePrice : Decimal
+  where
+    key owner : Party
+    maintainer key
+
+    signatory requestor, owner
+    controller owner can
+      Transfer : ContractId Property
+        do
+          exercise property TransferProperty with
+            newOwner
+            purchasePrice

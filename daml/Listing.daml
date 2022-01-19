@@ -1,0 +1,129 @@
+{-# LANGUAGE ApplicativeDo #-}
+module Listing where
+
+import Daml.Script
+import Properties
+import Accounts
+import Roles
+
+
+template Listing
+  with
+    owner : Party
+    price : Decimal
+    property : Property
+    public : [Party]
+  where
+    signatory owner
+    observer public
+    controller owner can
+
+      UpdateListing : ContractId Listing
+        with
+          newPrice : Decimal
+          newProperty : Property
+        do
+          create this with
+            price = newPrice
+            property = newProperty
+
+test = script do
+  -- Allocate Users
+  martin <- allocateParty "Martin"
+  damien <- allocateParty "Damien"
+  admin <- allocateParty "Admin"
+
+  -- Allocate Groups
+  users <- allocateParty "Public Users"
+  admins <- allocateParty "Admin Users"
+
+  -- Give Roles
+  martinUser <- submit martin do
+    createCmd UserLicense with user = martin
+
+  damienUser <- submit damien do
+    createCmd UserLicense with user = damien
+
+  adminUser <- submit admin do
+    createCmd AdminLicense with admin
+
+
+  let
+    martinAccount = Account
+      with
+        owner = martin
+        number = "ABC123"
+        balance = 200.0
+        observers = [admin]
+        
+    propRoyalty = PropertyRoyalties
+      with
+        owner = martin
+        ownerAccountNumber = martinAccount.number
+        royalty_rate = 8.0
+        observers = []
+
+    property = Property
+      with
+        owner = martin
+        issuer = martin
+        previous_owners = []
+        price_history = []
+        royalty = propRoyalty
+        observers = []
+
+    listing = Listing
+      with
+        owner = martin
+        price = 100.0
+        property = property
+        public = [users, admins]
+
+  royaltyCid <- submit martin do
+    createCmd propRoyalty
+
+  propertyCid <- submit martin do
+    createCmd property
+
+  listingCid <- submit martin do
+    createCmd listing
+
+  newRoyaltyCid <- submit martin do
+    exerciseCmd royaltyCid UpdateRoyaltyRate
+      with
+        newRate = 5.0
+
+  Some newRoyaltyContract <- queryContractId martin newRoyaltyCid
+  
+  newPropertyCid <- submit martin do
+    exerciseCmd propertyCid UpdateRoyalty
+      with
+        newRoyalty = newRoyaltyContract
+
+  Some updatedProperty <- queryContractId martin newPropertyCid
+
+  newListingCid <- submit martin do
+    exerciseCmd listingCid UpdateListing
+      with
+        newPrice = 95.0
+        newProperty = updatedProperty
+
+  -- damienBuysCid <- submit martin do
+  --   exerciseCmd newPropertyCid TransferProperty
+  --     with
+  --       newOwner = damien
+  --       purchasePrice = 50.0
+
+  -- transferRequest <- create TransferPropertyRequest with
+  --   requestor = damien
+  --   owner = martin
+  --   newOwner = damien
+  --   property = newPropertyCid
+  --   purchasePrice = 100.0
+
+
+
+
+
+  pure()
+
