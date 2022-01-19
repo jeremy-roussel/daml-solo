@@ -53,6 +53,7 @@ template PropertyRoyalties
         with
           newRate : Decimal
         do
+          -- assertion to make sure owner currently owns the property? (requires property key?)
           create this with
             royalty_rate = newRate
 
@@ -96,3 +97,11 @@ template TransferPropertyRequest
           exercise property TransferProperty with
             newOwner
             purchasePrice
+
+
+
+--           Account               Property
+--            ||                     ||
+--      Proposed_C_Transfer  ----  Proposed_P_Transfer
+
+--        ^^^ When these exist, exercise both ^^^
