@@ -22,7 +22,6 @@ template ProposeMakeDeposit
           balance = amount
           observers 
           
-
 template Account
   with
     bank : Party
@@ -33,25 +32,91 @@ template Account
     key owner : Party
     maintainer key
 
-    signatory bank, owner
+    observer observers, bank
 
-    choice PayClaim : ContractId Account
+    signatory bank, owner
+    -- signatory owner
+
+    choice CreateEscrowAccount : (ContractId EscrowAccount, ContractId Account)
       with
-        owedAmount : Int
+        amount : Int
+        offer : Text
       controller owner
       do
-        assert(balance > owedAmount)
+        assert(balance - amount > 0)
+        assert(amount >= 0)
+        escrowAccount <- create EscrowAccount with
+          bank
+          escrowOwner = owner
+          amount
+          offer
+          observers
+        newAccount <- create this with
+          balance = balance - amount
+        return (escrowAccount, newAccount)
+
+    choice DepositEscrowFunds : ContractId Account
+      with
+        escrowOwner : Party
+        offer : Text
+      controller owner
+      do
+        let
+          cKey = EscrowKey with
+            escrowOwner
+            offer
+
+        (cid, contract) <- fetchByKey @EscrowAccount cKey
+        assert(owner == contract.escrowOwner)
+        newAccount <- create this with
+          balance = balance + contract.amount
+        exercise cid Archive
+        return newAccount
+        
+data EscrowKey = EscrowKey with
+  escrowOwner : Party
+  offer : Text
+    deriving (Eq, Show)
+
+template EscrowAccount
+  with
+    bank : Party
+    escrowOwner : Party
+    amount : Int
+    offer : Text
+    observers : Party
+  where
+    key EscrowKey with
+        escrowOwner
+        offer
+      : EscrowKey
+    maintainer key.escrowOwner
+    signatory escrowOwner
+
+    -- choice DepositEscrow : ()
+    --   controller escrowOwner
+    --   do
+    --     return ()      
+
+    choice PayClaim : ContractId EscrowAccount
+      with
+        owedAmount : Int
+      observer bank
+      controller escrowOwner
+      do
+        assert(amount == owedAmount)
         create this with
-          balance = balance - owedAmount
+          amount = amount - owedAmount
     
-    choice AcceptPayment : ContractId Account
+    choice AcceptPayment : ContractId EscrowAccount
       with
         payment : Int
-      controller owner
+      observer bank
+      controller escrowOwner
       do
         assert(payment > 0)
         create this with
-          balance = balance + payment
+          amount = amount + payment
 
 template Payable
   with
@@ -59,19 +124,25 @@ template Payable
     from : Party
     to : Party
     admin : Party
+    offer : Text
   where
     signatory to
     observer from, admin
 
-    choice ClaimPaid: (ContractId Account, ContractId PaymentClaim)
+    choice ClaimPaid: (ContractId EscrowAccount, ContractId PaymentClaim)
       controller from
         do
-          updatedFromAccount <- exerciseByKey @Account (from) PayClaim with owedAmount = amount
+          let
+            cKey = EscrowKey with
+              escrowOwner = from
+              offer
+          updatedFromAccount <- exerciseByKey @EscrowAccount (cKey) PayClaim with owedAmount = amount
           newPaymentClaim <- create PaymentClaim with
             amount
             from
             to
             admin
+            offer
           return (updatedFromAccount, newPaymentClaim)
 
 template PaymentClaim
@@ -80,14 +151,19 @@ template PaymentClaim
     from: Party
     to: Party
     admin: Party
+    offer : Text
   where
     signatory from
     observer to, admin
 
-    choice Receive: (ContractId Account, ContractId Receipt)
+    choice Receive: (ContractId EscrowAccount, ContractId Receipt)
       controller to
         do
-          updatedAccount <- exerciseByKey @Account (to) AcceptPayment with payment = amount
+          let
+            cKey = EscrowKey with
+              escrowOwner = to
+              offer
+          updatedAccount <- exerciseByKey @EscrowAccount (cKey) AcceptPayment with payment = amount
           receipt <- create Receipt
             with
               amount
@@ -118,7 +194,7 @@ test = script do
       bank
       observers = admin
 
-  martinAcount <- submit bank do
+  martinAccount <- submit bank do
     exerciseCmd martinDepositProposal AcceptDeposit
 
   damienDepositProposal <- submit damien do
@@ -128,8 +204,18 @@ test = script do
       bank
       observers = admin
   
-  damienAcount <- submit bank do
+  damienAccount <- submit bank do
     exerciseCmd damienDepositProposal AcceptDeposit
+
+  (martinEscrowCid, martinAccountCid) <- submit martin do
+    exerciseCmd martinAccount CreateEscrowAccount with
+      amount = 0
+      offer = "ABC"
+
+  (damienEscrowCid, damienAccountCid) <- submit damien do
+    exerciseCmd damienAccount CreateEscrowAccount with
+      amount = 50
+      offer = "ABC"
 
   martinRequestsDamien <- submit martin do
     createCmd Payable with
@@ -137,13 +223,23 @@ test = script do
       from = damien
       to = martin
       admin
+      offer = "ABC"
   
-  (damienNewAccountCid, martinPaymentClaim) <- submit damien do
+  (damienNewEscrowAccountCid, martinPaymentClaim) <- submit damien do
     exerciseCmd martinRequestsDamien ClaimPaid
 
-  (martinNewAccountCid, receipt) <- submit martin do
+  (martinNewEscrowAccountCid, receipt) <- submit martin do
     exerciseCmd martinPaymentClaim Receive
 
+  martinFinalAccountCid <- submit martin do
+    exerciseCmd martinAccountCid DepositEscrowFunds with
+      escrowOwner = martin
+      offer = "ABC"
+
+  damienFinalAccountCid <- submit damien do
+    exerciseCmd damienAccountCid DepositEscrowFunds with
+      escrowOwner = damien
+      offer = "ABC"
 
   pure()
 
