@@ -3,167 +3,147 @@ module Accounts where
 
 import Daml.Script
 
--- data BalanceKey = BalanceKey with
---   accountNumber : Text
---   owner : Party
---     deriving (Eq, Show)
-
--- template AccountBalance
---   with
---     owner : Party
---     accountNumber : Text
---     balance : Decimal
---     observers : [Party]
---   where
---     key BalanceKey with
---         accountNumber
---         owner
---       : BalanceKey
---     maintainer key.owner
-
---     signatory owner
-
---     controller owner can
-
---       AcceptDeposit : ContractId Account
---         with deposit : Decimal
---         do
---           create this with
---             balance = balance + deposit
-  
-
-
-data AccountKey = AccountKey with
-  number : Text
-  owner : Party
-    deriving (Eq, Show)
+template ProposeMakeDeposit
+  with
+    proposer : Party
+    amount : Int
+    bank : Party
+    observers : Party
+  where
+    signatory proposer
+    observer [bank, observers]
+    
+    choice AcceptDeposit : ContractId Account
+      controller bank
+      do
+        create Account with
+          bank
+          owner = proposer
+          balance = amount
+          observers 
+          
 
 template Account
   with
+    bank : Party
     owner : Party
-    number : Text
-    balance : Decimal
-    observers : [Party]
+    balance : Int
+    observers : Party
   where
-    key AccountKey with
-          number
-          owner
-        : AccountKey
-    maintainer key.owner
-
-    signatory owner
-
-    controller owner can
-
-      AcceptDeposit : ContractId Account
-        with deposit : Decimal
-        do
-          create this with
-            balance = balance + deposit
-
-      TransferFundsTo : ContractId TransferFunds
-        with
-          recipient : Party
-          amount : Decimal
-          toAccount : ContractId Account
-        do
-          assert(amount <= balance)
-          create this with
-            balance = balance - amount
-          create TransferFunds
-            with
-              recipient
-              sender = owner
-              amount
-              toAccount
-
-template TransferFunds
-  with
-    recipient : Party
-    sender : Party
-    amount : Decimal
-    toAccount : ContractId Account
-  where
-    key sender : Party
+    key owner : Party
     maintainer key
-    signatory sender
-    controller recipient can
 
-      Accept: ContractId Account
-        do
-        assert(amount > 0.0)
-        exercise toAccount AcceptDeposit
-          with
-            deposit = amount
+    signatory bank, owner
 
-template TransferRequest
-  with
-    requestor : Party
-    debtor : Party
-    payee : Party
-    payeeAccount : ContractId Account
-    paymentAmount : Decimal
-  where
-    key payee : Party
-    maintainer key
-    signatory requestor, payee
-    controller debtor can
-      SendPayment : ContractId TransferFunds
-        with
-          account : ContractId Account
-        do
-          exercise account TransferFundsTo
-            with
-              recipient = payee
-              amount = paymentAmount
-              toAccount = payeeAccount
-
-template TransferRequestHelper
-  with
-    p : Party
-  where
-    signatory p
-    choice FetchPayRequestByKey : (ContractId TransferRequest, TransferRequest)
+    choice PayClaim : ContractId Account
       with
-        tKey: Party
-      controller p
+        owedAmount : Int
+      controller owner
       do
-        fetchByKey @TransferRequest tKey
-
-template AccountHelper
-  with
-    p : Party
-  where
-    signatory p
-    choice FetchAccountByKey : (ContractId Account, Account)
+        assert(balance > owedAmount)
+        create this with
+          balance = balance - owedAmount
+    
+    choice AcceptPayment : ContractId Account
       with
-        accountKey : AccountKey
-      controller p
-      do fetchByKey @Account accountKey
+        payment : Int
+      controller owner
+      do
+        assert(payment > 0)
+        create this with
+          balance = balance + payment
+
+template Payable
+  with
+    amount : Int
+    from : Party
+    to : Party
+    admin : Party
+  where
+    signatory to
+    observer from, admin
+
+    choice ClaimPaid: (ContractId Account, ContractId PaymentClaim)
+      controller from
+        do
+          updatedFromAccount <- exerciseByKey @Account (from) PayClaim with owedAmount = amount
+          newPaymentClaim <- create PaymentClaim with
+            amount
+            from
+            to
+            admin
+          return (updatedFromAccount, newPaymentClaim)
+
+template PaymentClaim
+  with
+    amount: Int
+    from: Party
+    to: Party
+    admin: Party
+  where
+    signatory from
+    observer to, admin
+
+    choice Receive: (ContractId Account, ContractId Receipt)
+      controller to
+        do
+          updatedAccount <- exerciseByKey @Account (to) AcceptPayment with payment = amount
+          receipt <- create Receipt
+            with
+              amount
+              from
+              to
+          return (updatedAccount, receipt)
+
+template Receipt
+  with
+    amount: Int
+    from: Party
+    to: Party
+  where
+    signatory to
+    observer from
 
 
 test = script do
+  bank <- allocateParty "Bank"
   martin <- allocateParty "Martin"
+  damien <- allocateParty "Damien"
   admin <- allocateParty "Admin"
 
-  let
-    initial_deposit = Account
-      with
-        owner = martin
-        number = "ABC123"
-        balance = 200.0
-        observers = [admin]
+  martinDepositProposal <- submit martin do
+    createCmd ProposeMakeDeposit with
+      proposer = martin
+      amount = 100
+      bank
+      observers = admin
+
+  martinAcount <- submit bank do
+    exerciseCmd martinDepositProposal AcceptDeposit
+
+  damienDepositProposal <- submit damien do
+    createCmd ProposeMakeDeposit with
+      proposer = damien
+      amount = 200
+      bank
+      observers = admin
   
-  martinAccount <- submit martin do
-    createCmd initial_deposit
+  damienAcount <- submit bank do
+    exerciseCmd damienDepositProposal AcceptDeposit
 
-  addedFunds <- submit martin do
-    cid <- exerciseCmd martinAccount AcceptDeposit
-      with
-        deposit = 200.0
-    pure cid
+  martinRequestsDamien <- submit martin do
+    createCmd Payable with
+      amount = 50
+      from = damien
+      to = martin
+      admin
+  
+  (damienNewAccountCid, martinPaymentClaim) <- submit damien do
+    exerciseCmd martinRequestsDamien ClaimPaid
 
-  -- assert (martinAccount == addedFunds)
+  (martinNewAccountCid, receipt) <- submit martin do
+    exerciseCmd martinPaymentClaim Receive
+
 
   pure()
 

@@ -48,65 +48,65 @@ test = script do
     createCmd AdminLicense with admin
 
 
-  let
-    martinAccount = Account
-      with
-        owner = martin
-        number = "ABC123"
-        balance = 200.0
-        observers = [admin]
+  -- let
+  --   martinAccount = Account
+  --     with
+  --       owner = martin
+  --       number = "ABC123"
+  --       balance = 200.0
+  --       observers = admin
         
-    propRoyalty = PropertyRoyalties
-      with
-        owner = martin
-        ownerAccountNumber = martinAccount.number
-        royalty_rate = 8.0
-        observers = []
+  --   propRoyalty = PropertyRoyalties
+  --     with
+  --       owner = martin
+  --       ownerAccountNumber = martinAccount.number
+  --       royalty_rate = 8.0
+  --       observers = []
 
-    property = Property
-      with
-        owner = martin
-        issuer = martin
-        previous_owners = []
-        price_history = []
-        royalty = propRoyalty
-        observers = []
+  --   property = Property
+  --     with
+  --       owner = martin
+  --       issuer = martin
+  --       previous_owners = []
+  --       price_history = []
+  --       royalty = propRoyalty
+  --       observers = []
 
-    listing = Listing
-      with
-        owner = martin
-        price = 100.0
-        property = property
-        public = [users, admins]
+  --   listing = Listing
+  --     with
+  --       owner = martin
+  --       price = 100.0
+  --       property = property
+  --       public = [users, admins]
 
-  royaltyCid <- submit martin do
-    createCmd propRoyalty
+  -- royaltyCid <- submit martin do
+  --   createCmd propRoyalty
 
-  propertyCid <- submit martin do
-    createCmd property
+  -- propertyCid <- submit martin do
+  --   createCmd property
 
-  listingCid <- submit martin do
-    createCmd listing
+  -- listingCid <- submit martin do
+  --   createCmd listing
 
-  newRoyaltyCid <- submit martin do
-    exerciseCmd royaltyCid UpdateRoyaltyRate
-      with
-        newRate = 5.0
+  -- newRoyaltyCid <- submit martin do
+  --   exerciseCmd royaltyCid UpdateRoyaltyRate
+  --     with
+  --       newRate = 5.0
 
-  Some newRoyaltyContract <- queryContractId martin newRoyaltyCid
+  -- Some newRoyaltyContract <- queryContractId martin newRoyaltyCid
   
-  newPropertyCid <- submit martin do
-    exerciseCmd propertyCid UpdateRoyalty
-      with
-        newRoyalty = newRoyaltyContract
+  -- newPropertyCid <- submit martin do
+  --   exerciseCmd propertyCid UpdateRoyalty
+  --     with
+  --       newRoyalty = newRoyaltyContract
 
-  Some updatedProperty <- queryContractId martin newPropertyCid
+  -- Some updatedProperty <- queryContractId martin newPropertyCid
 
-  newListingCid <- submit martin do
-    exerciseCmd listingCid UpdateListing
-      with
-        newPrice = 95.0
-        newProperty = updatedProperty
+  -- newListingCid <- submit martin do
+  --   exerciseCmd listingCid UpdateListing
+  --     with
+  --       newPrice = 95.0
+  --       newProperty = updatedProperty
 
   -- damienBuysCid <- submit martin do
   --   exerciseCmd newPropertyCid TransferProperty
